@@ -120,14 +120,29 @@ private:
 // ============================================================================
 // 3. Pybind11 Interface (No changes)
 // ============================================================================
-torch::Tensor perform_io_task(const std::string& file_path, const std::string& key, const std::vector<int64_t>& token_ids) {
+torch::Tensor perform_io_task(const std::string& file_path, const std::string& key, const torch::Tensor& token_ids) {
+    // ---- 函数内部的转化和校验 ----
+    // 检查传入的 tensor 是否为 1 维
+    TORCH_CHECK(token_ids.dim() == 1, "token_ids tensor must be 1-dimensional.");
+    // 检查是否为整数类型
+    TORCH_CHECK(c10::isIntegralType(token_ids.scalar_type()), "token_ids tensor must be an integer type.");
+    
     auto& manager = DataManager::getInstance(file_path);
     const auto& info = manager.getTensorInfo(key);
     const char* file_base_ptr = manager.getMmapBasePtr();
     const void* tensor_data_ptr = file_base_ptr + info.offset;
+    
     auto options = torch::TensorOptions().dtype(info.dtype).device(torch::kCPU);
     torch::Tensor full_tensor = torch::from_blob(const_cast<void*>(tensor_data_ptr), info.shape, options);
-    auto indices = torch::tensor(token_ids, torch::kLong);
+    
+    // torch::index_select 要求索引必须是 Long 类型 (int64)
+    // 如果传入的 token_ids 不是 Long 类型（例如是 Int 类型），则进行转换
+    auto indices = token_ids;
+    if (indices.scalar_type() != torch::kLong) {
+        indices = indices.to(torch::kLong);
+    }
+    
+    // 现在直接使用传入的 tensor 作为索引
     return torch::index_select(full_tensor, 0, indices).clone();
 }
 
@@ -139,20 +154,26 @@ private:
     std::future<torch::Tensor> future_;
 };
 
+// 2. 同样修改 trigger_io 的函数签名
 std::shared_ptr<AsyncDataHandle> trigger_io(
-    const std::string& file_path, const std::string& key, const std::vector<int64_t>& token_ids) {
+    const std::string& file_path, const std::string& key, const torch::Tensor& token_ids) {
     std::future<torch::Tensor> future = std::async(
         std::launch::async, perform_io_task, file_path, key, token_ids
     );
     return std::make_shared<AsyncDataHandle>(std::move(future));
 }
 
+// 3. 修改 TORCH_LIBRARY 中的函数签名 schema
 TORCH_LIBRARY(custom, m) {
-    m.def("perform_io_task_sync(str file_path, str key, int[] token_ids) -> Tensor", &perform_io_task);
+    // 将 "int[]" 修改为 "Tensor"
+    m.def("perform_io_task_sync(str file_path, str key, Tensor token_ids) -> Tensor", &perform_io_task);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::class_<AsyncDataHandle, std::shared_ptr<AsyncDataHandle>>(m, "AsyncDataHandle")
         .def("get", &AsyncDataHandle::get, py::call_guard<py::gil_scoped_release>());
+    
+    // pybind11 会自动处理 Python 的 torch.Tensor 到 C++ 的 torch::Tensor 的转换
+    // 所以这里只需要指向新的 trigger_io 函数即可
     m.def("trigger_io", &trigger_io, "Trigger async data loading from disk.");
 }
