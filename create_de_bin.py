@@ -1,32 +1,26 @@
-import torch
-import struct
-import json
-import os
-import io
+import torch, struct, json, os
 from tqdm import tqdm
 
-# (您的 get_DeepEmbed 函数保持不变, 此处省略)
+
 key_words = {"s_emb", "k_emb", "v_emb"}
-def get_DeepEmbed(model_name: str):
-    # ... (代码与您提供的一致)
+def get_DeepEmbed(model_name: os.PathLike):
     pth = torch.load(model_name if model_name.endswith(".pth") else f"{model_name}.pth", map_location="cpu", weights_only=True)
     n_layer = max(int(k.split(".")[1]) for k in pth.keys() if any(kw in k for kw in key_words)) + 1
     print(f"Layer number: {n_layer}")
+
     de_pth = {}
     norm_emb = torch.nn.functional.layer_norm(pth['emb.weight'], (pth['emb.weight'].shape[-1],), weight=pth['blocks.0.ln0.weight'], bias=pth['blocks.0.ln0.bias'])
+    
     for i in range(n_layer):
         de_pth[f"s_emb.{i}"] = pth[f"blocks.{i}.ffn.s_emb.weight"] + norm_emb @ pth[f"blocks.{i}.ffn.s_emb_x.weight"].t()
         de_pth[f"k_emb.{i}"] = pth[f"blocks.{i}.qkv.k_emb.weight"] + norm_emb @ pth[f"blocks.{i}.qkv.k_emb_x.weight"].t()
         de_pth[f"v_emb.{i}"] = pth[f"blocks.{i}.qkv.v_emb.weight"] + norm_emb @ pth[f"blocks.{i}.qkv.v_emb_x.weight"].t()
     print("DeepEmbed(A) build OK.")
+
     return de_pth
 
 
-def create_data_store_optimized(output_path, original_data_dict):
-    """
-    优化版：采用 Data | Index | Footer 结构，单遍写入，逻辑更清晰。
-    Footer格式: [index_offset (uint64), index_size (uint64)]
-    """
+def create_data_store(output_path: os.PathLike, original_data_dict: dict):
     if os.path.exists(output_path):
         print(f"文件 {output_path} 已存在，将被覆盖。")
         os.remove(output_path)
@@ -69,4 +63,4 @@ def create_data_store_optimized(output_path, original_data_dict):
 # --- 使用示例 ---
 if __name__ == '__main__':
     model_weights = get_DeepEmbed("rwkv7b-g1b-0.1b-20250822-ctx4096.pth")
-    create_data_store_optimized("DeepEmbed.bin", model_weights)
+    create_data_store("DeepEmbed.bin", model_weights)
