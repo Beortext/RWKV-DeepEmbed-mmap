@@ -462,7 +462,7 @@ tokenizer = RWKV_TOKENIZER("rwkv_vocab_v20230424.txt")
 ########################################################################################################
 
 # print(tokenizer.decode([12509]))
-MODEL_NAME = "rwkv7b-g1b-0.1b-20250822-ctx4096.pth"
+MODEL_NAME = "rwkv7b-g1b-0.1b-20250822-ctx4096_NoDE.pth"
 
 print(f'\nUsing CUDA {str(DTYPE).replace("torch.","")}. Loading {MODEL_NAME} ...')
 model = RWKV_x070(MODEL_NAME)
