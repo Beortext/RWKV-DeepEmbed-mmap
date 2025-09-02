@@ -24,10 +24,6 @@ def gen_MainModel(model_name: os.PathLike):
         # 对特定层的权重进行转置
         if 'key.weight' in k or 'value.weight' in k or 'receptance.weight' in k or 'output.weight' in k or 'head.weight' in k or 'qq.weight' in k:
             pth[k] = z[k].t()
-        
-        # 特殊处理 r_k
-        if k.endswith('att.r_k'): 
-            pth[k] = z[k].flatten()
 
     # LayerNorm融合到emb.weight
     pth['emb.weight'] = torch.layer_norm(z['emb.weight'], (z['emb.weight'].shape[-1],), weight=z['blocks.0.ln0.weight'], bias=z['blocks.0.ln0.bias'])

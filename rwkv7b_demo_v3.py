@@ -102,6 +102,8 @@ class RWKV_x070(MyModule):
         keys = list(z.keys())
         for k in keys:
             z[k] = z[k].to(dtype=DTYPE)
+            if k.endswith('att.r_k'): 
+                z[k] = z[k].flatten()
 
         self.n_layer = max(int(k.split(".")[1]) for k in keys if 'blocks' in k) + 1
 
