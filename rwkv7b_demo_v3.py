@@ -21,7 +21,7 @@ torch._C._jit_set_autocast_mode(False)
 import torch.nn as nn
 from torch.nn import functional as F
 
-if False:
+if True:
     MyModule = torch.jit.ScriptModule
     MyFunction = torch.jit.script_method
     MyStatic = torch.jit.script
@@ -45,6 +45,7 @@ TOP_P = 0.0
 ########################################################################################################
 
 DTYPE = torch.half
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 from torch.utils.cpp_extension import load
 HEAD_SIZE = 64
@@ -91,7 +92,7 @@ class RWKV_x070(MyModule):
         super().__init__()
         self.eval()
         
-        self.z = torch.load(model_name if model_name.endswith('.pth') else model_name + '.pth', map_location='cuda', weights_only=True)
+        self.z = torch.load(model_name if model_name.endswith('.pth') else model_name + '.pth', map_location=DEVICE, weights_only=True)
         self.de_loader = DeepEmbed_Loader(de_file)
         
         z = self.z
@@ -100,36 +101,28 @@ class RWKV_x070(MyModule):
 
         keys = list(z.keys())
         for k in keys:
-            if 'key.weight' in k or 'value.weight' in k or 'receptance.weight' in k or 'output.weight' in k or 'head.weight' in k or 'qq.weight' in k:
-                z[k] = z[k].t()
-            z[k] = z[k].squeeze().to(dtype=DTYPE)
-            if k.endswith('att.r_k'): z[k] = z[k].flatten()
+            z[k] = z[k].to(dtype=DTYPE)
 
         self.n_layer = max(int(k.split(".")[1]) for k in keys if 'blocks' in k) + 1
 
-        z['emb.weight'] = F.layer_norm(z['emb.weight'], (self.n_embd,), weight=z['blocks.0.ln0.weight'], bias=z['blocks.0.ln0.bias'])
-
-        z['blocks.0.att.v0'] = z['blocks.0.att.a0'] # actually ignored
-        z['blocks.0.att.v1'] = z['blocks.0.att.a1'] # actually ignored
-        z['blocks.0.att.v2'] = z['blocks.0.att.a2'] # actually ignored
 
     def forward(self, idx, state, full_output=False):        
         if state == None:            
             state = [None for _ in range(self.n_layer * 3 + 37)] # with KV cache etc.
             for i in range(self.n_layer): # state: 0=att_x_prev 1=att_kv 2=ffn_x_prev
-                state[i*3+0] = torch.zeros(self.n_embd, dtype=DTYPE, requires_grad=False, device="cuda")
-                state[i*3+1] = torch.zeros((self.n_embd // self.head_size, self.head_size, self.head_size), dtype=torch.float, requires_grad=False, device="cuda")
-                state[i*3+2] = torch.zeros(self.n_embd, dtype=DTYPE, requires_grad=False, device="cuda")
+                state[i*3+0] = torch.zeros(self.n_embd, dtype=DTYPE, requires_grad=False, device=DEVICE)
+                state[i*3+1] = torch.zeros((self.n_embd // self.head_size, self.head_size, self.head_size), dtype=torch.float, requires_grad=False, device=DEVICE)
+                state[i*3+2] = torch.zeros(self.n_embd, dtype=DTYPE, requires_grad=False, device=DEVICE)
             
-            state[self.n_layer*3+0] = torch.tensor([idx] if type(idx) == int else idx, dtype=torch.int, device="cuda") # token idx cache
+            state[self.n_layer*3+0] = torch.tensor([idx] if type(idx) == int else idx, dtype=torch.int, device=DEVICE) # token idx cache
             for i in range(1,1+24): # kv cache = 12*2*32 numbers per token
-                state[self.n_layer*3+i] = torch.empty((0,32), dtype=DTYPE, requires_grad=False, device="cuda")
+                state[self.n_layer*3+i] = torch.empty((0,32), dtype=DTYPE, requires_grad=False, device=DEVICE)
             
             for i in range(1+24,1+36): # token-shift cache for Q in DEA
-                state[self.n_layer*3+i] = torch.zeros(256, dtype=DTYPE, requires_grad=False, device="cuda")
+                state[self.n_layer*3+i] = torch.zeros(256, dtype=DTYPE, requires_grad=False, device=DEVICE)
         else:
             state[self.n_layer*3+0] = torch.cat(
-                (state[self.n_layer*3], torch.tensor([idx] if type(idx) == int else idx, dtype=torch.int, device="cuda")),
+                (state[self.n_layer*3], torch.tensor([idx] if type(idx) == int else idx, dtype=torch.int, device=DEVICE)),
                 dim=0)# token idx cache
 
         if type(idx) is list:
