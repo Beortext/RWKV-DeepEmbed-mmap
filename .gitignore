@@ -206,5 +206,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 DeepEmbed.bin
-rwkv7b-g1b-0.1b-20250822-ctx4096_DE.st
-rwkv7b-g1b-0.1b-20250822-ctx4096.pth
+rwkv7b-g1b-0.1b-20250822-ctx4096*
